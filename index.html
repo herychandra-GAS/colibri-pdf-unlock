@@ -334,7 +334,7 @@
     Colibri PDF Unlock
   </div>
   <div class="sep"></div>
-  <span class="tagline">qpdf · wasm</span>
+  <span class="tagline">qpdf · wasm · v4</span>
   <div class="spacer"></div>
   <div class="hbadge accent">
     <span class="lbl">MODE</span>
@@ -413,6 +413,18 @@
   const edot = document.getElementById('edot');
   const engineTxt = document.getElementById('engine-txt');
 
+  // Chrome (and other browsers) will navigate to / open a dropped file if a
+  // drop event ever reaches the window without being prevented — this can
+  // happen even with per-element listeners if the drop lands a pixel outside
+  // the intended target, during a brief gap before listeners attach, or (as
+  // seen when opening the file directly via file://) due to how the browser
+  // sequences default vs custom handlers. Blocking it at the document level
+  // guarantees the browser's "open this file" fallback never fires, while
+  // the dropzone's own listener below still handles adding the files.
+  ['dragover', 'drop'].forEach(function(evt){
+    document.addEventListener(evt, function(e){ e.preventDefault(); }, false);
+  });
+
   let items = [];
   let idCounter = 0;
   let lastMode = null;
@@ -425,19 +437,35 @@
   // qpdf's own log lines (e.g. "invalid password") land in the browser
   // console as normal, which is harmless; we never rely on parsing them
   // (see decryptOne() below, which uses exit codes instead).
+  //
+  // This is wrapped in try/catch (not just a Promise .catch) because if
+  // lib/qpdf.js failed to load or execute for any reason — blocked by an
+  // extension, a network hiccup, a strict local file policy — createQPDF
+  // itself would be undefined, which throws synchronously and would
+  // otherwise stop every line of code below it from ever running,
+  // including all the dropzone/click/drag-and-drop wiring further down.
   let qpdfMod = null;
-  let qpdfReady = createQPDF({
-    locateFile: function(path){ return 'lib/' + path; }
-  }).then(function(mod){
-    qpdfMod = mod;
-    edot.className = 'edot ok';
-    engineTxt.textContent = 'decrypt engine ready (qpdf via WebAssembly, running locally)';
-    updateButton();
-  }).catch(function(err){
+  try {
+    if (typeof createQPDF !== 'function') {
+      throw new Error('createQPDF is not defined — lib/qpdf.js did not load correctly');
+    }
+    createQPDF({
+      locateFile: function(path){ return 'lib/' + path; }
+    }).then(function(mod){
+      qpdfMod = mod;
+      edot.className = 'edot ok';
+      engineTxt.textContent = 'decrypt engine ready (qpdf via WebAssembly, running locally)';
+      updateButton();
+    }).catch(function(err){
+      edot.className = 'edot err';
+      engineTxt.textContent = 'engine failed to load — try reloading the page';
+      console.error('qpdf-wasm init failed:', err);
+    });
+  } catch (err) {
     edot.className = 'edot err';
     engineTxt.textContent = 'engine failed to load — try reloading the page';
     console.error('qpdf-wasm init failed:', err);
-  });
+  }
 
   function fmtSize(bytes){
     if(bytes < 1024) return bytes + ' B';
@@ -523,7 +551,7 @@
     dropzone.addEventListener(evt, (e)=>{ e.preventDefault(); e.stopPropagation(); dropzone.classList.remove('drag'); });
   });
   dropzone.addEventListener('drop', (e)=>{
-    if(e.dataTransfer.files && e.dataTransfer.files.length){
+    if(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length){
       addFiles(Array.from(e.dataTransfer.files));
     }
   });
