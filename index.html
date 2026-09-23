@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Colibri PDF Unlock</title>
+<script src="lib/jszip.min.js"></script>
+<script src="lib/qpdf.js"></script>
+<style>
+  *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+  :root {
+    --bg:          #0d0f14;
+    --surface:     #161921;
+    --surface-2:   #1c2030;
+    --surface-3:   #252b3b;
+    --border:      #272d3d;
+    --border-hi:   #3a4260;
+    --accent:      #29d9a3;
+    --accent-dim:  rgba(41,217,163,.13);
+    --accent-glow: rgba(41,217,163,.30);
+    --text:        #e8eef8;
+    --text-muted:  #9aafc8;
+    --text-dim:    #5c6e90;
+    --warn:        #f5a623;
+    --warn-dim:    rgba(245,166,35,.13);
+    --danger:      #e84545;
+    --danger-dim:  rgba(232,69,69,.13);
+    --r:  6px;
+    --r2: 10px;
+    --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --mono: 'Consolas', 'JetBrains Mono', 'Courier New', monospace;
+  }
+
+  html, body { height:100%; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 14px;
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding: 0 0 40px;
+  }
+
+  ::-webkit-scrollbar { width:4px; height:4px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+
+  /* ── HEADER ──────────────────────────────────────────────── */
+  #header {
+    width:100%;
+    display:flex; align-items:center; gap:10px;
+    padding:10px 18px;
+    background:var(--surface);
+    border-bottom:1px solid var(--border);
+    flex-shrink:0;
+  }
+  .logo {
+    display:flex; align-items:center; gap:8px;
+    font-size:15px; font-weight:600; color:var(--accent);
+    letter-spacing:.02em;
+  }
+  .logo svg { width:18px; height:18px; stroke:var(--accent); flex-shrink:0; }
+  #header .sep { width:1px; height:16px; background:var(--border); }
+  #header .spacer { flex:1; }
+  #header .tagline { font-family:var(--mono); font-size:11px; color:var(--text-dim); }
+
+  .hbadge {
+    display:flex; align-items:center; gap:5px;
+    padding:4px 10px;
+    background:var(--surface-2); border:1px solid var(--border);
+    border-radius:var(--r);
+    font-family:var(--mono); font-size:12px;
+  }
+  .hbadge .lbl { color:var(--text-muted); }
+  .hbadge .val { color:var(--text); font-weight:600; }
+  .hbadge.accent .val { color:var(--accent); }
+
+  /* ── ENGINE STATUS STRIP ─────────────────────────────────── */
+  #engine-strip {
+    width:100%;
+    display:flex; align-items:center; gap:7px;
+    padding:6px 18px;
+    background:var(--surface-2);
+    border-bottom:1px solid var(--border);
+    font-family:var(--mono); font-size:11px;
+    color:var(--text-muted);
+    flex-shrink:0;
+  }
+  .edot {
+    width:6px; height:6px; border-radius:50%;
+    background:var(--text-dim); flex-shrink:0;
+  }
+  .edot.ok { background:var(--accent); }
+  .edot.warn { background:var(--warn); animation:blink 1.2s infinite; }
+  .edot.err { background:var(--danger); }
+
+  /* ── MAIN WRAP ───────────────────────────────────────────── */
+  #main {
+    width:100%;
+    max-width:640px;
+    padding:20px 18px 0;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+  }
+
+  /* ── CARD ────────────────────────────────────────────────── */
+  .card {
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--r);
+    overflow:hidden; flex-shrink:0;
+  }
+  .card-hd {
+    padding:7px 12px;
+    background:var(--surface-2);
+    border-bottom:1px solid var(--border);
+    font-size:11px; font-weight:600;
+    text-transform:uppercase; letter-spacing:.08em;
+    color:var(--text-muted);
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .card-bd { padding:12px; }
+
+  /* ── DROPZONE ────────────────────────────────────────────── */
+  #dropzone {
+    border:2px dashed var(--border);
+    border-radius:var(--r);
+    padding:30px 16px;
+    text-align:center;
+    cursor:pointer;
+    background:var(--surface);
+    transition:border-color .15s, background .15s;
+    position:relative;
+  }
+  #dropzone input[type=file] { position:absolute; inset:0; opacity:0; cursor:pointer; }
+  #dropzone:hover, #dropzone.drag { border-color:var(--accent); background:var(--accent-dim); }
+  #dropzone.has-file { border-style:solid; border-color:var(--accent); background:var(--accent-dim); padding:16px; }
+  .dz-icon { font-size:28px; margin-bottom:8px; }
+  .dz-title { font-size:14px; font-weight:500; }
+  .dz-sub { font-size:12px; color:var(--text-muted); margin-top:4px; font-family:var(--mono); }
+
+  /* ── FILE LIST ───────────────────────────────────────────── */
+  #fileList { max-height:280px; overflow-y:auto; }
+  .file-row {
+    display:flex; align-items:center; gap:8px;
+    padding:8px 12px;
+    border-bottom:1px solid var(--border);
+    transition:background .12s;
+  }
+  .file-row:last-child { border-bottom:none; }
+  .file-row:hover { background:var(--surface-2); }
+  .file-row .icon { font-size:14px; flex-shrink:0; line-height:1; }
+  .file-row .name {
+    flex:1; min-width:0;
+    font-size:12.5px; color:var(--text);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .file-row .size { font-family:var(--mono); font-size:11px; color:var(--text-dim); flex-shrink:0; }
+  .file-row .state {
+    flex-shrink:0;
+    font-size:10px; font-weight:600; letter-spacing:.04em;
+    padding:3px 7px; border-radius:3px;
+    text-transform:uppercase;
+    min-width:104px; text-align:center;
+    font-family:var(--mono);
+  }
+  .file-row .state.pending { background:var(--surface-3); color:var(--text-dim); }
+  .file-row .state.working { background:var(--accent-dim); color:var(--accent); animation:blink 1s infinite; }
+  .file-row .state.ok      { background:rgba(41,217,163,.18); color:var(--accent); }
+  .file-row .state.err     { background:var(--danger-dim); color:var(--danger); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+  .file-row .x {
+    cursor:pointer; background:none; border:none;
+    color:var(--text-dim); font-size:15px; line-height:1;
+    padding:2px 4px; border-radius:3px; flex-shrink:0;
+    transition:color .12s;
+  }
+  .file-row .x:hover { color:var(--danger); }
+
+  .add-more {
+    display:none;
+    width:100%;
+    padding:8px;
+    background:var(--surface-2);
+    border:none; border-top:1px solid var(--border);
+    color:var(--text-muted);
+    font-family:var(--font); font-size:12px; font-weight:500;
+    cursor:pointer; transition:color .12s, background .12s;
+    position:relative;
+  }
+  .add-more input[type=file] { position:absolute; inset:0; opacity:0; cursor:pointer; }
+  .add-more:hover { color:var(--accent); background:var(--surface-3); }
+  .add-more.show { display:block; }
+
+  /* ── PASSWORD FIELD ──────────────────────────────────────── */
+  .p-lbl {
+    font-size:11px; font-weight:600;
+    text-transform:uppercase; letter-spacing:.06em;
+    color:var(--text-muted);
+    margin-bottom:6px; display:block;
+  }
+  #pwInput {
+    width:100%;
+    background:var(--surface-2);
+    border:1px solid var(--border);
+    border-radius:var(--r);
+    color:var(--text);
+    font-family:var(--mono); font-size:14px;
+    padding:9px 11px;
+    transition:border-color .15s;
+  }
+  #pwInput:focus { outline:none; border-color:var(--accent); }
+  #pwInput::placeholder { color:var(--text-dim); }
+
+  .show-pw {
+    display:flex; align-items:center; gap:6px;
+    margin-top:8px;
+    font-family:var(--mono); font-size:11px; color:var(--text-muted);
+    cursor:pointer; user-select:none;
+  }
+  .ck-box {
+    width:14px; height:14px;
+    background:var(--surface-2);
+    border:1px solid var(--border);
+    border-radius:3px;
+    display:flex; align-items:center; justify-content:center;
+    flex-shrink:0;
+    transition:border-color .12s, background .12s;
+    font-size:10px; font-weight:700;
+  }
+  .show-pw.active .ck-box { background:var(--accent-dim); border-color:var(--accent); color:var(--accent); }
+  .field-hint {
+    font-family:var(--mono); font-size:11px; color:var(--text-dim);
+    margin-top:8px; line-height:1.5;
+  }
+
+  /* ── ACTION BAR ──────────────────────────────────────────── */
+  #action-bar { display:flex; flex-direction:column; gap:10px; }
+  .btn {
+    padding:11px 18px; border-radius:var(--r);
+    border:1px solid var(--border);
+    font-family:var(--font); font-size:13.5px; font-weight:600;
+    cursor:pointer; transition:all .15s; white-space:nowrap;
+  }
+  .btn-prim {
+    width:100%;
+    background:var(--accent); border-color:var(--accent);
+    color:#0d0f14; font-weight:700;
+  }
+  .btn-prim:hover:not(:disabled) {
+    opacity:.9; transform:translateY(-1px);
+    box-shadow:0 0 20px var(--accent-glow), 0 0 8px var(--accent-glow);
+  }
+  .btn-prim:disabled { opacity:.35; cursor:not-allowed; transform:none; box-shadow:none; }
+
+  .btn-ghost { background:var(--surface-2); color:var(--text-muted); border-color:var(--border); }
+  .btn-ghost:hover:not(:disabled) { border-color:var(--border-hi); color:var(--text); box-shadow:0 0 10px rgba(58,66,96,.55); }
+
+  /* ── STATUS / PROGRESS ───────────────────────────────────── */
+  .status {
+    font-family:var(--mono); font-size:12px;
+    min-height:1.2em; display:flex; align-items:center; gap:8px;
+    color:var(--text-muted);
+  }
+  .status.err { color:var(--danger); }
+  .status.ok  { color:var(--accent); }
+
+  .loader-spin {
+    width:12px; height:12px;
+    border:2px solid var(--border);
+    border-top-color:var(--accent);
+    border-radius:50%;
+    animation:spin .7s linear infinite;
+    flex-shrink:0;
+  }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  .progress-track {
+    height:5px;
+    background:var(--surface-2);
+    border:1px solid var(--border);
+    border-radius:3px;
+    overflow:hidden;
+    display:none;
+  }
+  .progress-track.show { display:block; }
+  .progress-fill {
+    height:100%;
+    background:var(--accent);
+    width:0%;
+    transition:width .2s;
+    box-shadow:0 0 8px var(--accent-glow);
+  }
+
+  /* ── RESULT ──────────────────────────────────────────────── */
+  #result {
+    display:none;
+    flex-direction:column; gap:10px;
+    padding:14px;
+    background:rgba(41,217,163,.08);
+    border:1px solid var(--accent);
+    border-radius:var(--r);
+  }
+  #result.show { display:flex; }
+  #result.warn { background:var(--warn-dim); border-color:var(--warn); }
+  #resultText { font-size:13px; color:var(--text); display:flex; align-items:center; gap:8px; }
+  #result.warn #resultText { color:var(--warn); }
+  #result a { text-decoration:none; }
+
+  /* ── FOOTNOTE ────────────────────────────────────────────── */
+  .note {
+    font-family:var(--mono); font-size:11px;
+    color:var(--text-dim); line-height:1.7;
+    padding:14px 2px 30px;
+  }
+  .note .dot { color:var(--accent); }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <div class="logo">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="11" width="18" height="10" rx="2"/>
+      <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
+    </svg>
+    Colibri PDF Unlock
+  </div>
+  <div class="sep"></div>
+  <span class="tagline">qpdf · wasm</span>
+  <div class="spacer"></div>
+  <div class="hbadge accent">
+    <span class="lbl">MODE</span>
+    <span class="val">Batch</span>
+  </div>
+</div>
+
+<div id="engine-strip">
+  <span class="edot warn" id="edot"></span>
+  <span id="engine-txt">loading decrypt engine…</span>
+</div>
+
+<div id="main">
+
+  <div class="card">
+    <div id="dropzone">
+      <input type="file" id="fileInput" accept="application/pdf" multiple>
+      <div class="dz-icon">&#128193;</div>
+      <div class="dz-title" id="dropLabel">Drop PDFs here, or click to choose files</div>
+      <div class="dz-sub">password-protected · any number · .pdf only</div>
+    </div>
+    <div id="fileList"></div>
+    <label class="add-more" id="addMore">
+      <input type="file" id="fileInputMore" accept="application/pdf" multiple>
+      + add more files
+    </label>
+  </div>
+
+  <div class="card">
+    <div class="card-hd">Password</div>
+    <div class="card-bd">
+      <label class="p-lbl" for="pwInput">used for every file in the batch</label>
+      <input type="password" id="pwInput" placeholder="••••••••••••" autocomplete="off">
+      <div class="show-pw" id="showPw">
+        <span class="ck-box"></span>
+        show password
+      </div>
+      <div class="field-hint">files with a different password will fail and stay listed — retry them separately</div>
+    </div>
+  </div>
+
+  <div id="action-bar">
+    <button class="btn btn-prim" id="goBtn" disabled>Remove passwords</button>
+    <div class="status" id="status"></div>
+    <div class="progress-track" id="progressTrack"><div class="progress-fill" id="progressFill"></div></div>
+  </div>
+
+  <div id="result">
+    <div id="resultText"></div>
+    <button class="btn btn-ghost" id="downloadBtn" type="button" style="align-self:flex-start;">Download</button>
+  </div>
+
+  <div class="note">
+    <span class="dot">●</span> Everything happens in this browser tab — the real qpdf engine runs locally via WebAssembly, so files and passwords are never uploaded anywhere. This is a true decrypt, not a re-render: text stays selectable, vector art stays sharp, quality is identical to the original. One file downloads directly as a PDF; more than one downloads as a single ZIP. Close the tab when done and nothing is kept.
+  </div>
+
+</div>
+
+<script>
+(function(){
+  const dropzone = document.getElementById('dropzone');
+  const dropLabel = document.getElementById('dropLabel');
+  const fileInput = document.getElementById('fileInput');
+  const fileInputMore = document.getElementById('fileInputMore');
+  const fileListEl = document.getElementById('fileList');
+  const addMore = document.getElementById('addMore');
+  const pwInput = document.getElementById('pwInput');
+  const showPw = document.getElementById('showPw');
+  const goBtn = document.getElementById('goBtn');
+  const statusEl = document.getElementById('status');
+  const progressTrack = document.getElementById('progressTrack');
+  const progressFill = document.getElementById('progressFill');
+  const resultEl = document.getElementById('result');
+  const resultText = document.getElementById('resultText');
+  const downloadBtn = document.getElementById('downloadBtn');
+  const edot = document.getElementById('edot');
+  const engineTxt = document.getElementById('engine-txt');
+
+  let items = [];
+  let idCounter = 0;
+  let lastMode = null;
+  let lastSingle = null;
+  let lastZipBytes = null;
+  let lastZipName = 'unlocked_pdfs.zip';
+
+  // ── Load the qpdf WASM engine once, up front ──────────────
+  // Note: this build of qpdf-wasm doesn't expose print/printErr hooks —
+  // qpdf's own log lines (e.g. "invalid password") land in the browser
+  // console as normal, which is harmless; we never rely on parsing them
+  // (see decryptOne() below, which uses exit codes instead).
+  let qpdfMod = null;
+  let qpdfReady = createQPDF({
+    locateFile: function(path){ return 'lib/' + path; }
+  }).then(function(mod){
+    qpdfMod = mod;
+    edot.className = 'edot ok';
+    engineTxt.textContent = 'decrypt engine ready (qpdf via WebAssembly, running locally)';
+    updateButton();
+  }).catch(function(err){
+    edot.className = 'edot err';
+    engineTxt.textContent = 'engine failed to load — try reloading the page';
+    console.error('qpdf-wasm init failed:', err);
+  });
+
+  function fmtSize(bytes){
+    if(bytes < 1024) return bytes + ' B';
+    if(bytes < 1024*1024) return (bytes/1024).toFixed(0) + ' KB';
+    return (bytes/1024/1024).toFixed(1) + ' MB';
+  }
+
+  function setStatus(msg, cls, spin){
+    statusEl.innerHTML = '';
+    statusEl.className = 'status' + (cls ? ' ' + cls : '');
+    if(spin){
+      const s = document.createElement('span');
+      s.className = 'loader-spin';
+      statusEl.appendChild(s);
+    }
+    if(msg){
+      const t = document.createElement('span');
+      t.textContent = msg;
+      statusEl.appendChild(t);
+    }
+  }
+
+  function updateButton(){
+    goBtn.disabled = items.length === 0 || !qpdfMod;
+    addMore.classList.toggle('show', items.length > 0);
+    dropzone.classList.toggle('has-file', items.length > 0);
+    dropLabel.textContent = items.length > 0
+      ? items.length + ' file' + (items.length===1?'':'s') + ' queued — drop more, or use "add more" below'
+      : 'Drop PDFs here, or click to choose files';
+  }
+
+  function removeItem(id){
+    const idx = items.findIndex(it => it.id === id);
+    if(idx === -1) return;
+    items[idx].rowEl.remove();
+    items.splice(idx, 1);
+    if(items.length === 0){
+      resultEl.classList.remove('show');
+      setStatus('');
+    }
+    updateButton();
+  }
+
+  function addFiles(fileArr){
+    let skipped = 0;
+    for(const file of fileArr){
+      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+      if(!isPdf){ skipped++; continue; }
+      if(items.some(it => it.file.name === file.name && it.file.size === file.size)) continue;
+
+      const id = ++idCounter;
+      const row = document.createElement('div');
+      row.className = 'file-row';
+      row.innerHTML =
+        '<span class="icon">&#128196;</span>' +
+        '<span class="name" title="'+file.name+'">'+file.name+'</span>' +
+        '<span class="size">'+fmtSize(file.size)+'</span>' +
+        '<span class="state pending">waiting</span>' +
+        '<button class="x" title="remove">&times;</button>';
+      const stateEl = row.querySelector('.state');
+      row.querySelector('.x').addEventListener('click', ()=> removeItem(id));
+      fileListEl.appendChild(row);
+
+      items.push({ id, file, rowEl: row, stateEl, status:'pending', outBytes:null, outName:null, errMsg:null });
+    }
+    if(skipped > 0) setStatus(skipped + ' file(s) skipped — not PDFs.', 'err');
+    if(items.length > 0) resultEl.classList.remove('show');
+    updateButton();
+  }
+
+  fileInput.addEventListener('change', (e)=>{ addFiles(Array.from(e.target.files)); fileInput.value=''; });
+  fileInputMore.addEventListener('change', (e)=>{ addFiles(Array.from(e.target.files)); fileInputMore.value=''; });
+
+  ['dragenter','dragover'].forEach(evt=>{
+    dropzone.addEventListener(evt, (e)=>{ e.preventDefault(); dropzone.classList.add('drag'); });
+  });
+  ['dragleave','drop'].forEach(evt=>{
+    dropzone.addEventListener(evt, (e)=>{ e.preventDefault(); dropzone.classList.remove('drag'); });
+  });
+  dropzone.addEventListener('drop', (e)=>{
+    if(e.dataTransfer.files && e.dataTransfer.files.length){
+      addFiles(Array.from(e.dataTransfer.files));
+    }
+  });
+
+  showPw.addEventListener('click', ()=>{
+    const isPw = pwInput.type === 'password';
+    pwInput.type = isPw ? 'text' : 'password';
+    showPw.classList.toggle('active', !isPw);
+    showPw.querySelector('.ck-box').textContent = !isPw ? '\u2713' : '';
+  });
+
+  async function decryptOne(file, password){
+    const arrayBuffer = await file.arrayBuffer();
+    const inputBytes = new Uint8Array(arrayBuffer);
+
+    const inPath = '/in_' + Math.random().toString(36).slice(2) + '.pdf';
+    const outPath = '/out_' + Math.random().toString(36).slice(2) + '.pdf';
+
+    qpdfMod.FS.writeFile(inPath, inputBytes);
+
+    // qpdf's own documented exit codes (https://qpdf.readthedocs.io/en/stable/cli.html):
+    //   0 = no errors or warnings; 2 = errors found, file was not processed; 3 = warnings only.
+    // We don't rely on parsing stderr text (this particular wasm build routes it in ways
+    // that differ by environment) — exit code plus whether an output file actually landed
+    // in the virtual filesystem is a fully reliable, environment-independent signal.
+    const exitCode = qpdfMod.callMain(['--password=' + (password || ''), '--decrypt', inPath, outPath]);
+
+    let result;
+    if(exitCode === 0 || exitCode === 3){
+      try{
+        const outBytes = qpdfMod.FS.readFile(outPath);
+        result = { ok: true, bytes: outBytes.slice(), warnings: exitCode === 3 ? 'qpdf reported warnings' : null };
+      } catch(e){
+        result = { ok: false, code: 'qpdf_error', message: 'qpdf reported success but produced no output' };
+      }
+    } else if(exitCode === 2){
+      // Almost always a wrong/missing password for an otherwise well-formed encrypted PDF.
+      // (qpdf also uses this code for other malformed-file errors, but in the context of
+      // this tool — user-supplied password on a file we already know is encrypted — a
+      // wrong password is overwhelmingly the most likely cause.)
+      result = { ok: false, code: 'bad_password', message: 'incorrect password, or file could not be processed' };
+    } else {
+      result = { ok: false, code: 'qpdf_error', message: 'qpdf exited with code ' + exitCode };
+    }
+
+
+    // clean up virtual FS
+    try{ qpdfMod.FS.unlink(inPath); }catch(e){}
+    try{ qpdfMod.FS.unlink(outPath); }catch(e){}
+
+    return result;
+  }
+
+  goBtn.addEventListener('click', async ()=>{
+    if(items.length === 0 || !qpdfMod) return;
+    resultEl.classList.remove('show');
+    resultEl.classList.remove('warn');
+    goBtn.disabled = true;
+    progressTrack.classList.add('show');
+    progressFill.style.width = '0%';
+
+    const password = pwInput.value;
+    let okCount = 0, errCount = 0;
+
+    for(let idx = 0; idx < items.length; idx++){
+      const item = items[idx];
+      item.status = 'working';
+      item.stateEl.className = 'state working';
+      item.stateEl.textContent = 'decrypting';
+      setStatus('processing ' + (idx+1) + ' of ' + items.length + ' — ' + item.file.name, '', true);
+
+      // yield to the browser so the UI paints before the (synchronous) wasm call
+      await new Promise(r => setTimeout(r, 10));
+
+      try{
+        const res = await decryptOne(item.file, password);
+        if(res.ok){
+          item.outBytes = res.bytes;
+          item.outName = item.file.name.replace(/\.pdf$/i, '') + '_unlocked.pdf';
+          item.status = 'ok';
+          item.stateEl.className = 'state ok';
+          item.stateEl.textContent = res.warnings ? 'ok (warn)' : 'unlocked';
+          okCount++;
+        } else {
+          item.status = 'err';
+          item.errMsg = res.code === 'bad_password' ? 'wrong password' : (res.message || res.code);
+          item.stateEl.className = 'state err';
+          item.stateEl.textContent = item.errMsg.length > 16 ? 'failed' : item.errMsg;
+          errCount++;
+        }
+      } catch(err){
+        item.status = 'err';
+        item.errMsg = err.message || String(err);
+        item.stateEl.className = 'state err';
+        item.stateEl.textContent = 'failed';
+        errCount++;
+      }
+
+      progressFill.style.width = Math.round(((idx+1)/items.length)*100) + '%';
+    }
+
+    progressTrack.classList.remove('show');
+    goBtn.disabled = false;
+
+    if(okCount === 0){
+      setStatus('nothing could be unlocked — check the password and try again.', 'err');
+      return;
+    }
+
+    if(errCount > 0){
+      resultEl.classList.add('warn');
+      resultText.textContent = okCount + ' unlocked, ' + errCount + ' failed (wrong/missing password).';
+    } else {
+      resultText.textContent = 'All ' + okCount + ' file' + (okCount===1?'':'s') + ' unlocked.';
+    }
+
+    if(okCount === 1){
+      lastMode = 'single';
+      const okItem = items.find(it => it.status === 'ok');
+      lastSingle = { bytes: okItem.outBytes, name: okItem.outName };
+      downloadBtn.textContent = 'Download PDF';
+    } else {
+      setStatus('zipping ' + okCount + ' file' + (okCount===1?'':'s') + '…', '', true);
+      const zip = new JSZip();
+      for(const it of items){
+        if(it.status === 'ok'){
+          zip.file(it.outName, it.outBytes);
+        }
+      }
+      const zipBytes = await zip.generateAsync({ type:'uint8array', compression:'DEFLATE', compressionOptions:{level:6} });
+      lastMode = 'zip';
+      lastZipBytes = zipBytes;
+      lastZipName = 'unlocked_pdfs_' + okCount + '.zip';
+      downloadBtn.textContent = 'Download ZIP';
+    }
+
+    resultEl.classList.add('show');
+    setStatus('done.', 'ok');
+  });
+
+  downloadBtn.addEventListener('click', ()=>{
+    let blob, name;
+    if(lastMode === 'single' && lastSingle){
+      blob = new Blob([lastSingle.bytes], { type: 'application/pdf' });
+      name = lastSingle.name;
+    } else if(lastMode === 'zip' && lastZipBytes){
+      blob = new Blob([lastZipBytes], { type: 'application/zip' });
+      name = lastZipName;
+    } else {
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=> URL.revokeObjectURL(url), 4000);
+  });
+})();
+</script>
+
+</body>
+</html>
