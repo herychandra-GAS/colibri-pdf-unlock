@@ -334,7 +334,7 @@
     Colibri PDF Unlock
   </div>
   <div class="sep"></div>
-  <span class="tagline">qpdf · wasm · v4</span>
+  <span class="tagline">qpdf · wasm · v5</span>
   <div class="spacer"></div>
   <div class="hbadge accent">
     <span class="lbl">MODE</span>
@@ -433,23 +433,23 @@
   let lastZipName = 'unlocked_pdfs.zip';
 
   // ── Load the qpdf WASM engine once, up front ──────────────
-  // Note: this build of qpdf-wasm doesn't expose print/printErr hooks —
-  // qpdf's own log lines (e.g. "invalid password") land in the browser
-  // console as normal, which is harmless; we never rely on parsing them
-  // (see decryptOne() below, which uses exit codes instead).
+  // Note: lib/qpdf.js (the @jspawn/qpdf-wasm build) exposes its factory
+  // function as the global `Module` when loaded via a plain <script> tag —
+  // not `createQPDF` (that name only works via Node's require(), where
+  // CommonJS module.exports hides the actual variable name used inside).
   //
   // This is wrapped in try/catch (not just a Promise .catch) because if
   // lib/qpdf.js failed to load or execute for any reason — blocked by an
-  // extension, a network hiccup, a strict local file policy — createQPDF
+  // extension, a network hiccup, a strict local file policy — Module
   // itself would be undefined, which throws synchronously and would
   // otherwise stop every line of code below it from ever running,
   // including all the dropzone/click/drag-and-drop wiring further down.
   let qpdfMod = null;
   try {
-    if (typeof createQPDF !== 'function') {
-      throw new Error('createQPDF is not defined — lib/qpdf.js did not load correctly');
+    if (typeof Module !== 'function') {
+      throw new Error('Module is not defined — lib/qpdf.js did not load correctly');
     }
-    createQPDF({
+    Module({
       locateFile: function(path){ return 'lib/' + path; }
     }).then(function(mod){
       qpdfMod = mod;
