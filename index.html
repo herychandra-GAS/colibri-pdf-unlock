@@ -138,7 +138,7 @@
     transition:border-color .15s, background .15s;
     position:relative;
   }
-  #dropzone input[type=file] { position:absolute; inset:0; opacity:0; cursor:pointer; }
+  #dropzone input[type=file] { position:absolute; inset:0; opacity:0; cursor:pointer; pointer-events:none; }
   #dropzone:hover, #dropzone.drag { border-color:var(--accent); background:var(--accent-dim); }
   #dropzone.has-file { border-style:solid; border-color:var(--accent); background:var(--accent-dim); padding:16px; }
   .dz-icon { font-size:28px; margin-bottom:8px; }
@@ -511,11 +511,16 @@
   fileInput.addEventListener('change', (e)=>{ addFiles(Array.from(e.target.files)); fileInput.value=''; });
   fileInputMore.addEventListener('change', (e)=>{ addFiles(Array.from(e.target.files)); fileInputMore.value=''; });
 
+  // The file input has pointer-events:none (see CSS) so drag/drop reaches the
+  // dropzone div reliably instead of being intercepted by the input itself.
+  // That means clicks need to be forwarded to the input manually.
+  dropzone.addEventListener('click', ()=>{ fileInput.click(); });
+
   ['dragenter','dragover'].forEach(evt=>{
-    dropzone.addEventListener(evt, (e)=>{ e.preventDefault(); dropzone.classList.add('drag'); });
+    dropzone.addEventListener(evt, (e)=>{ e.preventDefault(); e.stopPropagation(); dropzone.classList.add('drag'); });
   });
   ['dragleave','drop'].forEach(evt=>{
-    dropzone.addEventListener(evt, (e)=>{ e.preventDefault(); dropzone.classList.remove('drag'); });
+    dropzone.addEventListener(evt, (e)=>{ e.preventDefault(); e.stopPropagation(); dropzone.classList.remove('drag'); });
   });
   dropzone.addEventListener('drop', (e)=>{
     if(e.dataTransfer.files && e.dataTransfer.files.length){
